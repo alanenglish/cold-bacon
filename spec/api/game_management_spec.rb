@@ -41,23 +41,36 @@ RSpec.describe "Game Management", type: :request do
     let(:starting_tmdb) { 9778 }
     let(:ending_tmdb) { 4724 }
 
-    it "returns OK with content type as JSON" do
-      VCR.use_cassette "Demo Game Actors" do
-        post "/create_demo/#{starting_tmdb}/#{ending_tmdb}"
+    context "sending valid params in the url" do
+      it "returns OK with content type as JSON" do
+        VCR.use_cassette "Demo Game Actors" do
+          post "/create_demo/#{starting_tmdb}/#{ending_tmdb}"
 
-        expect(response).to redirect_to assigns(:game)
-        expect(response).to have_http_status(302)
+          expect(response).to redirect_to assigns(:game)
+          expect(response).to have_http_status(302)
+        end
+      end
+
+      it "responds with the requested starting and ending actor" do
+        VCR.use_cassette "Demo Game Actors" do
+          post "/create_demo/#{starting_tmdb}/#{ending_tmdb}"
+          get "/games/#{assigns(:game).id}"
+          game_response = JSON.parse(response.body)
+
+          expect(game_response["starting_actor"]["tmdb_id"]).to eq starting_tmdb
+          expect(game_response["ending_actor"]["tmdb_id"]).to eq ending_tmdb
+        end
       end
     end
 
-    it "responds with the requested starting and ending actor" do
-      VCR.use_cassette "Demo Game Actors" do
-        post "/create_demo/#{starting_tmdb}/#{ending_tmdb}"
-        get "/games/#{assigns(:game).id}"
-        game_response = JSON.parse(response.body)
+    context "sending invalid params in the url" do
+      it "returns nothing with a status of 400" do
+        VCR.use_cassette "Invalid TMDB Ids" do
+          post "/create_demo/not_an_int/non_an_int"
 
-        expect(game_response["starting_actor"]["tmdb_id"]).to eq starting_tmdb
-        expect(game_response["ending_actor"]["tmdb_id"]).to eq ending_tmdb
+          expect(response.body).to eq ""
+          expect(response).to have_http_status(400)
+        end
       end
     end
   end
@@ -68,6 +81,15 @@ RSpec.describe "Game Management", type: :request do
     let!(:game) { Game.create! }
 
     let(:possible_paths_count) { 8 }
+
+    context "the request includes a non-existent traceable" do
+      it "returns nothing with a status of 400" do
+        post "/games/#{game.id}/paths", params: { path: { traceable_type: "Actor", traceable_id: 0 } }
+
+        expect(response.body).to eq ""
+        expect(response).to have_http_status(400)
+      end
+    end
 
     context "a non-winning path is chosen" do
       it "redirects to show path if an traceable path is created" do
@@ -181,14 +203,43 @@ RSpec.describe "Game Management", type: :request do
     end
   end
 
+  describe "showing an actor" do
+    let!(:actor) { Actor.create!(name: "Sam", tmdb_id: 1, image_url: "sam.jpg", popularity: 60) }
+
+    it "responds OK with the correct actor object" do
+      get "/actors/#{actor.id}"
+      actor_response = JSON.parse(response.body)
+
+      expect(response).to have_http_status(200)
+      expect(actor_response["id"]).to eq actor.id
+    end
+  end
+
+  describe "showing a movie" do
+    let!(:movie) { Movie.create!(name: "The Rock", tmdb_id: 1, image_url: "profile.jpg", popularity: 60) }
+
+    it "responds OK with the correct movie object" do
+      get "/movies/#{movie.id}"
+      movie_response = JSON.parse(response.body)
+
+      expect(response).to have_http_status(200)
+      expect(movie_response["id"]).to eq movie.id
+    end
+  end
+
   describe "path index" do
     let!(:actor1) { Actor.create!(name: "Sam", tmdb_id: 1, image_url: "sam.jpg", popularity: 60) }
     let!(:actor2) { Actor.create!(name: "Jack", tmdb_id: 2, image_url: "jack.jpg", popularity: 60) }
     let!(:movie) { Movie.create!(name: "The Rock", tmdb_id: 0, image_url: "profile.jpg", popularity: 60) }
+    let!(:game) { Game.create! }
+
+    it "responds OK" do
+      get "/games/#{game.id}/paths"
+
+      expect(response).to have_http_status(200)
+    end
 
     context "a game has at least one actor path saved" do
-      let!(:game) { Game.create! }
-
       it "responds with a JSON object with a path that has an actor" do
         actor3 = Actor.create!(name: "Paul", tmdb_id: 3, image_url: "paul.jpg", popularity: 60)
 
@@ -202,8 +253,6 @@ RSpec.describe "Game Management", type: :request do
     end
 
     context "a game has at least one movie path saved" do
-      let!(:game) { Game.create! }
-
       it "responds with a JSON object with a path that has a movie" do
         post "/games/#{game.id}/paths", params: { path: { traceable_type: "Movie", traceable_id: movie.id } }
 
